@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StreamVerse</title>
+    <!-- Povezujemo Socket.IO i Flv.js za video strim -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/flv.js/1.6.2/flv.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background: #121214; color: #e1e1e6; display: flex; flex-direction: column; height: 100vh; }
+        header { background: #1a1a1e; padding: 15px; text-align: center; font-size: 20px; font-weight: bold; color: #8257e5; border-bottom: 2px solid #29292e; }
+        .container { display: flex; flex: 1; flex-direction: column; overflow: hidden; }
+        @media(min-width: 768px) { .container { flex-direction: row; } }
+        
+        /* Video Sekcija */
+        .video-container { flex: 2; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; min-height: 250px; }
+        video { width: 100%; height: 100%; max-height: 85vh; background: #000; }
+        
+        /* Čet Sekcija */
+        .chat-container { flex: 1; display: flex; flex-direction: column; background: #1a1a1e; border-top: 2px solid #29292e; }
+        @media(min-width: 768px) { .chat-container { border-top: none; border-left: 2px solid #29292e; } }
+        .messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .msg { background: #29292e; padding: 8px 12px; border-radius: 8px; max-width: 85%; width: fit-content; }
+        .msg .username { font-weight: bold; color: #9871f5; font-size: 13px; margin-bottom: 2px; }
+        .msg .time { font-size: 10px; color: #7c7c8a; float: right; margin-top: 5px; margin-left: 10px; }
+        
+        /* Input Kontrole */
+        .setup-box, .input-box { padding: 15px; background: #202024; display: flex; gap: 10px; border-top: 1px solid #29292e; }
+        input { flex: 1; padding: 12px; background: #121214; border: 1px solid #29292e; color: #fff; border-radius: 6px; font-size: 14px; }
+        input:focus { border-color: #8257e5; outline: none; }
+        button { padding: 12px 20px; background: #8257e5; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        button:hover { background: #9466ff; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <header>📺 StreamVerse Portal</header>
+
+    <div class="container">
+        <!-- Strana sa videom -->
+        <div class="video-container">
+            <video id="videoElement" controls autoplay muted></video>
+            <button id="startStreamBtn" style="position: absolute; bottom: 20px;">Pokreni Plejer</button>
+        </div>
+
+        <!-- Strana sa četom -->
+        <div class="chat-container">
+            <!-- Korak 1: Unos imena -->
+            <div id="setupArea" class="setup-box">
+                <input type="text" id="usernameInput" placeholder="Unesi svoje ime/nadimak...">
+                <button id="joinBtn">Uđi u čet</button>
+            </div>
+
+            <!-- Korak 2: Poruke i slanje -->
+            <div id="chatArea" class="messages hidden"></div>
+            <div id="inputArea" class="input-box hidden">
+                <input type="text" id="messageInput" placeholder="Upiši poruku...">
+                <button id="sendBtn">Pošalji</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Povezivanje na tvoj Render backend server
+        const SERVER_URL = "https://streamverse-backend-1gdx.onrender.com";
+        const socket = io(SERVER_URL);
+
+        let myUsername = "";
+
+        // Elementi na stranici
+        const setupArea = document.getElementById('setupArea');
+        const chatArea = document.getElementById('chatArea');
+        const inputArea = document.getElementById('inputArea');
+        const usernameInput = document.getElementById('usernameInput');
+        const messageInput = document.getElementById('messageInput');
+        const joinBtn = document.getElementById('joinBtn');
+        const sendBtn = document.getElementById('sendBtn');
+
+        // Ulazak u čet
+        joinBtn.addEventListener('click', () => {
+            const name = usernameInput.value.trim();
+            if(name) {
+                myUsername = name;
+                setupArea.classList.add('hidden');
+                chatArea.classList.remove('hidden');
+                inputArea.classList.remove('hidden');
+                
+                // Automatska sistemska poruka u četu da je korisnik ušao
+                appendSystemMessage(`👋 Pridružio se/la si se četu kao ${myUsername}`);
+            }
+        });
+
+        // Slanje poruke
+        function sendMessage() {
+            const text = messageInput.value.trim();
+            if(text && myUsername) {
+                socket.emit('send_message', {
+                    username: myUsername,
+                    text: text
+                });
+                messageInput.value = "";
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') sendMessage(); });
+
+        // Prijem poruke od servera
+        socket.on('receive_message', (data) => {
+            const msgDiv = document.createElement('div');
+            msgDiv.classList.add('msg');
+            msgDiv.innerHTML = `
+                <div class="username">${data.username}</div>
+                <div class="text">${data.text} <span class="time">${data.time}</span></div>
+            `;
+            chatArea.appendChild(msgDiv);
+            chatArea.scrollTop = chatArea.scrollHeight; // Skroluje na najnoviju poruku
+        });
+
+        function appendSystemMessage(text) {
+            const sysDiv = document.createElement('div');
+            sysDiv.style.fontSize = "12px";
+            sysDiv.style.color = "#7c7c8a";
+            sysDiv.style.textAlign = "center";
+            sysDiv.style.margin = "5px 0";
+            sysDiv.innerText = text;
+            chatArea.appendChild(sysDiv);
+        }
+
+        // --- VIDEO PLEJER (ZA LIVE STRIM) ---
+        document.getElementById('startStreamBtn').addEventListener('click', () => {
+            if (flvjs.isSupported()) {
+                const videoElement = document.getElementById('videoElement');
+                const flvPlayer = flvjs.createPlayer({
+                    type: 'flv',
+                    // HTTP-FLV link sa tvog servera za povlačenje strima
+                    url: 'https://streamverse-backend-1gdx.onrender.com:8000/live/stream.flv'
+                });
+                flvPlayer.attachMediaElement(videoElement);
+                flvPlayer.load();
+                flvPlayer.play();
+                document.getElementById('startStreamBtn').classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
